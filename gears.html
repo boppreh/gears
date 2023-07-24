@@ -20,94 +20,90 @@
     
     <canvas id="canvas" width="1500" height="1500"></canvas>
     <script>
-// TODO: create gear by calculating distance from center (polar coordinates) at each angle, instead of drawing and subtracting.
-
-// https://learnersbucket.com/examples/algorithms/find-the-lcm-of-two-numbers-in-javascript/
-let lcm = (n1, n2) => {
-    let lar = Math.max(n1, n2);
-    let small = Math.min(n1, n2);
-    let i = lar;
-    while (i % small !== 0) {
-        i += lar;
-    }
-    return i;
-}
-
 const TAU = Math.PI * 2;
 
 const STEPS_PER_TURN = 10000;
-const FRAMES_PER_TURN = 100;
+const FRAMES_PER_TURN = 800;
 
 const canvas = document.getElementById("canvas");
 
-let gearSrc;
+let gearSrcFile;
 async function makeGear(newSrc) {
     if (newSrc)
-        gearSrc = newSrc;
-    const SOURCE_TEETH = document.getElementById("src-teeth").valueAsNumber;
-    const TARGET_TEETH = document.getElementById("dst-teeth").valueAsNumber;
-    const gearRatio = TARGET_TEETH / SOURCE_TEETH;
-    const TARGET_SIZE = document.getElementById("size").valueAsNumber;
-    // Ensure enough contacts between the teeth.
-    const LCM = lcm(SOURCE_TEETH, TARGET_TEETH);
-    
-    const TEETH_SIZE_FUDGE = 50;
+        gearSrcFile = newSrc;
+
+    const distances = [];
+
+    const gearSrc = new Image();
+    gearSrc.src = gearSrcFile;
+    await gearSrc.decode();
+    const canvasSrc = document.createElement("canvas");
+    canvasSrc.width = gearSrc.width;
+    canvasSrc.height = gearSrc.height;
+    const ctxSrc = canvasSrc.getContext("2d");
+    const MAX_DISTANCE = Math.ceil(Math.max(canvasSrc.width, canvasSrc.height) * Math.SQRT2);
+    ctxSrc.drawImage(gearSrc, 0, 0);
+    const imageDataSrc = ctxSrc.getImageData(0, 0, canvasSrc.width, canvasSrc.height);
+    for (let angle = 0; angle < TAU; angle += TAU / STEPS_PER_TURN) {
+        for (let distance = MAX_DISTANCE; distance >= 0; distance -= 1) {
+            if (distance == 0) {
+                distances.push(0);
+            }
+
+            const x = (Math.cos(angle) * distance + canvasSrc.width / 2) | 0;
+            const y = (Math.sin(angle) * distance + canvasSrc.height / 2) | 0;
+            if (x < 0 || x >= canvasSrc.width || y < 0 || y >= canvasSrc.height) continue;
+            const transparency = imageDataSrc.data[(y * canvasSrc.width + x) * 4 + 3];
+            if (transparency > 0) {
+                distances.push(distance);
+                break;
+            }
+        }
+    }
+
+    const targetSize = document.getElementById("size").valueAsNumber + Math.max(...distances) - Math.min(...distances);
+
+    const canvasDst = document.createElement("canvas");
+    canvasDst.width = canvasDst.height = targetSize * Math.SQRT2;
+    const ctxDst = canvasDst.getContext("2d");
+    ctxDst.beginPath();
+    distances.forEach((distance, i) => {
+        const angle = i * TAU / STEPS_PER_TURN;
+        const x = (Math.cos(angle) * (targetSize - distance) + canvasDst.width / 2) | 0;
+        const y = (Math.sin(angle) * (targetSize - distance) + canvasDst.height / 2) | 0;
+        if (i == 0) {
+            ctxDst.moveTo(x, y);
+        } else {
+            ctxDst.lineTo(x, y);
+        }
+    });
+    ctxDst.closePath();
+    ctxDst.fillStyle = "black";
+    ctxDst.fill();
 
     const ctx = canvas.getContext("2d");
 
-    const gear = new Image();
-    gear.src = gearSrc;
-    await gear.decode();
-
-    ctx.save();
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.globalCompositeOperation = "destination-out";
+    // Now animate the two gears rotating.
     let angle = 0;
-    while (angle < 2 * TAU) {
-        for (let i = 0; i < STEPS_PER_TURN / FRAMES_PER_TURN; i++) {
-            ctx.save();
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.rotate(angle);
-            ctx.translate(TARGET_SIZE / 2 - TEETH_SIZE_FUDGE, 0);
-            ctx.translate(gear.width / 2, 0);
-            ctx.rotate(angle * gearRatio);
-            ctx.drawImage(gear, -gear.width / 2, -gear.height / 2);
-            ctx.restore();
-            angle += TAU / STEPS_PER_TURN;
-        }
-        await new Promise(resolve => requestAnimationFrame(resolve));
-    }
-    ctx.restore();
-
-    // Save current canvas to draw in next frames.
-    const targetGear = document.createElement("canvas");
-    targetGear.width = TARGET_SIZE;
-    targetGear.height = TARGET_SIZE;
-    // Extract target gear from big canvas into cropped canvas.
-    targetGear.getContext("2d").drawImage(canvas, canvas.width / 2 - TARGET_SIZE / 2, canvas.height / 2 - TARGET_SIZE / 2, TARGET_SIZE, TARGET_SIZE, 0, 0, TARGET_SIZE, TARGET_SIZE);
-
     while (true) {
-        ctx.save();
+        angle += TAU / FRAMES_PER_TURN;
+        
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
         ctx.translate(canvas.width / 2, canvas.height / 2);
-
-        ctx.save();
-        ctx.rotate(angle / gearRatio);
-        ctx.drawImage(targetGear, -TARGET_SIZE / 2, -TARGET_SIZE / 2);
+        ctx.rotate(angle);
+        ctx.drawImage(canvasDst, -canvasDst.width / 2, -canvasDst.height / 2);
         ctx.restore();
-
         ctx.save();
-        ctx.translate(TARGET_SIZE / 2 - TEETH_SIZE_FUDGE, 0);
-        ctx.translate(gear.width / 2, 0);
+        ctx.translate(canvas.width / 2 + targetSize, canvas.height / 2);
         ctx.rotate(-angle);
-        ctx.drawImage(gear, -gear.width / 2, -gear.height / 2);
+        ctx.drawImage(canvasSrc, -canvasSrc.width / 2, -canvasSrc.height / 2);
         ctx.restore();
 
-        ctx.restore();
-        angle += TAU / 1000;
+
+        
         await new Promise(resolve => requestAnimationFrame(resolve));
-    }
+    };
 }
 
 // TODO: this is broken because it starts a new infinite async process.
