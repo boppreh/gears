@@ -25,25 +25,26 @@ const TAU = Math.PI * 2;
 const STEPS_PER_TURN = 10000;
 const FRAMES_PER_TURN = 800;
 
-let gearSrcFile, canvasSrc, canvasDst, targetSize;
+let gearSrcFile, canvasSrc, canvasDst, targetSize, distances;
 async function makeGear(newSrc) {
     if (newSrc)
         gearSrcFile = newSrc;
         
-    const distances = [];
-    
+        
     const gearSrc = new Image();
     gearSrc.src = gearSrcFile;
     await gearSrc.decode();
+    
+    distances = [];
     canvasSrc = document.createElement("canvas");
     canvasSrc.width = gearSrc.width;
     canvasSrc.height = gearSrc.height;
     const ctxSrc = canvasSrc.getContext("2d");
-    const MAX_DISTANCE = Math.ceil(Math.max(canvasSrc.width, canvasSrc.height) * Math.SQRT2);
+    const maxSrcDistance = Math.pow(gearSrc.width * gearSrc.width + gearSrc.height * gearSrc.height, 0.5);
     ctxSrc.drawImage(gearSrc, 0, 0);
     const imageDataSrc = ctxSrc.getImageData(0, 0, canvasSrc.width, canvasSrc.height);
     for (let angle = 0; angle < TAU; angle += TAU / STEPS_PER_TURN) {
-        for (let distance = MAX_DISTANCE; distance >= 0; distance -= 1) {
+        for (let distance = maxSrcDistance; distance >= 0; distance -= 1) {
             if (distance == 0) {
                 distances.push(0);
             }
@@ -59,25 +60,47 @@ async function makeGear(newSrc) {
         }
     }
     
-    targetSize = document.getElementById("size").valueAsNumber + Math.max(...distances) - Math.min(...distances);
+    targetSize = document.getElementById("size").valueAsNumber;
     
     canvasDst = document.createElement("canvas");
     canvasDst.width = canvasDst.height = targetSize * Math.SQRT2;
     const ctxDst = canvasDst.getContext("2d");
+    // The destination gear is drawn horizontally mirrored to match the corresponding teeth of the source gear.
+    ctxDst.translate(canvasDst.width/2, 0);
+    ctxDst.scale(-1, 1);
     ctxDst.beginPath();
-    distances.forEach((distance, i) => {
-        const angle = i * TAU / STEPS_PER_TURN;
-        const x = (Math.cos(angle) * (targetSize - distance) + canvasDst.width / 2) | 0;
-        const y = (Math.sin(angle) * (targetSize - distance) + canvasDst.height / 2) | 0;
-        if (i == 0) {
-            ctxDst.moveTo(x, y);
+    let angle = 0, distanceIndex = 0;
+    for (let distanceIndex = 0; angle < TAU; distanceIndex = (distanceIndex + 1) % distances.length) {
+        const distanceSrc = distances[distanceIndex];
+        const distanceDst = targetSize - distanceSrc;
+        const x = (Math.cos(angle) * distanceDst + canvasDst.width / 2) | 0;
+        const y = (Math.sin(angle) * distanceDst + canvasDst.height / 2) | 0;
+        if (distanceIndex == 0) {
+            ctxDst.moveTo(x - canvasDst.width/2, y);
         } else {
-            ctxDst.lineTo(x, y);
+            ctxDst.lineTo(x - canvasDst.width/2, y);
         }
-    });
+        angle += distanceSrc * TAU / distanceDst / STEPS_PER_TURN;
+    }
     ctxDst.closePath();
     ctxDst.fillStyle = "black";
     ctxDst.fill();
+}
+
+function drawGears(angleSrc, angleDst) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.save();
+    ctx.translate(canvas.width / 2 + targetSize, canvas.height / 2);
+    ctx.rotate(-angleSrc);
+    ctx.drawImage(canvasSrc, -canvasSrc.width / 2, -canvasSrc.height / 2);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-angleDst);
+    ctx.drawImage(canvasDst, -canvasDst.width / 2, -canvasDst.height / 2);
+    ctx.restore();
 }
 
 const canvas = document.getElementById("canvas");
@@ -86,23 +109,9 @@ async function animate() {
     let angle = 0;
     while (true) {
         angle += TAU / FRAMES_PER_TURN;
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(angle);
-        ctx.drawImage(canvasDst, -canvasDst.width / 2, -canvasDst.height / 2);
-        ctx.restore();
-        
-        ctx.save();
-        ctx.translate(canvas.width / 2 + targetSize, canvas.height / 2);
-        ctx.rotate(-angle);
-        ctx.drawImage(canvasSrc, -canvasSrc.width / 2, -canvasSrc.height / 2);
-        ctx.restore();
-        
+        drawGears(angle, -angle);
         await new Promise(resolve => requestAnimationFrame(resolve));
-    };
+    }
 }
 
 document.getElementById("dst-teeth").addEventListener("input", () => {
